@@ -1,0 +1,119 @@
+Example MVP Flow (C# WinForms style)
+Model
+
+csharp
+public class CityRepository
+{
+    private readonly string _connectionString;
+    public CityRepository(string connectionString) => _connectionString = connectionString;
+
+    public bool CityExists(string name)
+    {
+        using var conn = new NpgsqlConnection(_connectionString);
+        conn.Open();
+        using var cmd = new NpgsqlCommand("SELECT COUNT(*) FROM City WHERE UPPER(Name)=@name", conn);
+        cmd.Parameters.AddWithValue("@name", name.ToUpper());
+        return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+    }
+
+    public void AddCity(string name, string std, string tag)
+    {
+        using var conn = new NpgsqlConnection(_connectionString);
+        conn.Open();
+        using var cmd = new NpgsqlCommand("INSERT INTO City (Name, Std, Tag) VALUES (@name,@std,@tag)", conn);
+        cmd.Parameters.AddWithValue("@name", name.ToUpper());
+        cmd.Parameters.AddWithValue("@std", string.IsNullOrEmpty(std) ? (object)DBNull.Value : std);
+        cmd.Parameters.AddWithValue("@tag", string.IsNullOrEmpty(tag) ? (object)DBNull.Value : tag);
+        cmd.ExecuteNonQuery();
+    }
+}
+View Interface
+
+csharp
+public interface ICityView
+{
+    string CityName { get; }
+    string StdCode { get; }
+    string Tag { get; }
+    void ShowMessage(string message, string title);
+    void ClearInputs();
+    void FocusCityName();
+}
+Presenter
+
+csharp
+public class CityPresenter
+{
+    private readonly ICityView _view;
+    private readonly CityRepository _repo;
+
+    public CityPresenter(ICityView view, CityRepository repo)
+    {
+        _view = view;
+        _repo = repo;
+    }
+
+    public void SaveCity()
+    {
+        if (string.IsNullOrWhiteSpace(_view.CityName))
+        {
+            _view.ShowMessage("INVALID CITY NAME", "E - Val : INVALID DATA");
+            _view.FocusCityName();
+            return;
+        }
+
+        if (_repo.CityExists(_view.CityName))
+        {
+            _view.ShowMessage("THIS CITY ALREADY EXIST.", "E - Val : DUPLICATE DATA");
+            _view.FocusCityName();
+            return;
+        }
+
+        _repo.AddCity(_view.CityName, _view.StdCode, _view.Tag);
+        _view.ClearInputs();
+        _view.FocusCityName();
+    }
+}
+Form Implementation (View)
+
+csharp
+public partial class CityForm : Form, ICityView
+{
+    private readonly CityPresenter _presenter;
+
+    public CityForm()
+    {
+        InitializeComponent();
+        var repo = new CityRepository("your-connection-string");
+        _presenter = new CityPresenter(this, repo);
+    }
+
+    public string CityName => textBox1.Text.Trim();
+    public string StdCode => textBox3.Text.Trim();
+    public string Tag => textBox2.Text.Trim();
+
+    public void ShowMessage(string message, string title) =>
+        MessageBox.Show(message, title);
+
+    public void ClearInputs()
+    {
+        textBox1.Clear();
+        textBox2.Clear();
+        textBox3.Clear();
+    }
+
+    public void FocusCityName() => textBox1.Focus();
+
+    private void button1_Click(object sender, EventArgs e) =>
+        _presenter.SaveCity();
+}
+✨ Benefits of MVP Here
+Testability → You can unit test CityPresenter without UI.
+
+Separation of concerns → SQL logic is isolated in CityRepository.
+
+Maintainability → UI changes don’t affect business rules.
+
+Scalability → Easy to extend with more validation or logging.
+
+Would you like me to also show how the search-as-you-type (Text1_Change) grid population can be refactored into MVP style? That’s where MVP really shines, because the presenter can fetch filtered data and the view just binds it to the grid.
