@@ -1,0 +1,82 @@
+                    ┌──────────────────┐
+                    │    CityForm      │
+                    │      View        │
+                    └────────┬─────────┘
+                             │
+                             │ User clicks
+                             │ "Add City"
+                             ▼
+                    ┌──────────────────┐
+                    │ CityPresenter    │
+                    └────────┬─────────┘
+                             │
+                             │ _view.CityName
+                             ▼
+                    ┌──────────────────┐
+                    │    ICityView     │
+                    │    <<interface>> │
+                    └────────┬─────────┘
+                             │
+                             │ CityName
+                             │
+                             ▼
+                    ┌──────────────────┐
+                    │ CityPresenter    │
+                    │                  │
+                    │ Validate         │
+                    │ "Austin"         │
+                    └────────┬─────────┘
+                             │
+                             │ _repository.CityExists()
+                             ▼
+                    ┌──────────────────┐
+                    │ CityRepository   │
+                    │      Model       │
+                    └────────┬─────────┘
+                             │
+                             │ SQL
+                             ▼
+                    ┌──────────────────┐
+                    │   PostgreSQL     │
+                    │                  │
+                    │ SELECT COUNT(*)  │
+                    └────────┬─────────┘
+                             │
+                        Not Found
+                             │
+                             ▼
+                    ┌──────────────────┐
+                    │ CityRepository   │
+                    └────────┬─────────┘
+                             │
+                             │ AddCity()
+                             ▼
+                    ┌──────────────────┐
+                    │   PostgreSQL     │
+                    │                  │
+                    │ INSERT INTO city │
+                    └────────┬─────────┘
+                             │
+                         Success
+                             │
+                             ▼
+                    ┌──────────────────┐
+                    │ CityPresenter    │
+                    └────────┬─────────┘
+                             │
+                             │ _view.ShowMessage()
+                             ▼
+                    ┌──────────────────┐
+                    │    ICityView     │
+                    │    <<interface>> │
+                    └────────┬─────────┘
+                             │
+                             │ implemented by
+                             ▼
+                    ┌──────────────────┐
+                    │    CityForm      │
+                    │      View        │
+                    └────────┬─────────┘
+                             │
+                             ▼
+                 "City added successfully"
