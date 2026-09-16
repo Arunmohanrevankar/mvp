@@ -1,0 +1,566 @@
+Yes. Since your PostgreSQL table only has `code` and `ct_nm`, we can make a simple **MVP WinForms app** that lets you enter a city name and save it to PostgreSQL.
+
+ I'll assume:
+
+ - Project name: `DemoApp`
+- PostgreSQL database: `your_database`
+- Table: `city`
+- Primary/generated ID: `code`
+- City name: `ct_nm`
+- PostgreSQL user: `postgres`
+
+ ## 1\. Install Npgsql
+
+ In Visual Studio:
+
+ **Tools → NuGet Package Manager → Manage NuGet Packages**
+
+ Install:
+
+```
+Npgsql
+```
+
+ Or Package Manager Console:
+
+```
+Install-Package Npgsql
+```
+
+---
+
+ # 2\. Project structure
+
+ Create these folders/files:
+
+```
+DemoApp
+│
+├── Model
+│   └── CityRepository.cs
+│
+├── Presenter
+│   └── CityPresenter.cs
+│
+├── View
+│   ├── ICityView.cs
+│   └── CityForm.cs
+│
+└── Program.cs
+```
+
+ This gives you:
+
+```
+View  →  Presenter  →  Model
+ ↑                       │
+ └───────────────────────┘
+```
+
+ The **View** doesn't directly talk to PostgreSQL.
+
+---
+
+ # 3\. Model — CityRepository.cs
+
+ Create:
+
+```
+Model/CityRepository.cs
+```
+
+ Use:
+
+```
+using System;
+using Npgsql;
+
+namespace DemoApp.Model
+{
+    public class CityRepository
+    {
+        private readonly string _connectionString;
+
+        public CityRepository(string connectionString)
+        {
+            _connectionString = connectionString;
+        }
+
+        public bool CityExists(string cityName)
+        {
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+
+                string sql = @"
+                    SELECT COUNT(*)
+                    FROM city
+                    WHERE UPPER(ct_nm) = UPPER(@cityName)";
+
+                using (var cmd = new NpgsqlCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@cityName", cityName);
+
+                    int count = Convert.ToInt32(cmd.ExecuteScalar());
+
+                    return count > 0;
+                }
+            }
+        }
+
+        public void AddCity(string cityName)
+        {
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+
+                string sql = @"
+                    INSERT INTO city (ct_nm)
+                    VALUES (@cityName)";
+
+                using (var cmd = new NpgsqlCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@cityName", cityName);
+
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+    }
+}
+```
+
+ Notice that we're using your actual column:
+
+```
+ct_nm
+```
+
+ not `Name`.
+
+---
+
+ # 4\. View interface — ICityView.cs
+
+ Create:
+
+```
+View/ICityView.cs
+```
+
+```
+namespace DemoApp.View
+{
+    public interface ICityView
+    {
+        string CityName { get; }
+
+        void ShowMessage(string message);
+
+        void ShowError(string message);
+
+        void ClearCityName();
+    }
+}
+```
+
+ This is the interface that the Presenter talks to.
+
+---
+
+ # 5\. Presenter — CityPresenter.cs
+
+ Create:
+
+```
+Presenter/CityPresenter.cs
+```
+
+```
+using DemoApp.Model;
+using DemoApp.View;
+
+namespace DemoApp.Presenter
+{
+    public class CityPresenter
+    {
+        private readonly ICityView _view;
+        private readonly CityRepository _repository;
+
+        public CityPresenter(ICityView view, CityRepository repository)
+        {
+            _view = view;
+            _repository = repository;
+        }
+
+        public void AddCity()
+        {
+            string cityName = _view.CityName.Trim();
+
+            // Validate
+            if (string.IsNullOrWhiteSpace(cityName))
+            {
+                _view.ShowError("Please enter a city name.");
+                return;
+            }
+
+            // Maximum length from your database
+            if (cityName.Length > 200)
+            {
+                _view.ShowError("City name cannot exceed 200 characters.");
+                return;
+            }
+
+            try
+            {
+                // Check duplicate
+                if (_repository.CityExists(cityName))
+                {
+                    _view.ShowError("This city already exists.");
+                    return;
+                }
+
+                // Insert
+                _repository.AddCity(cityName);
+
+                _view.ShowMessage("City added successfully.");
+
+                _view.ClearCityName();
+            }
+            catch (System.Exception ex)
+            {
+                _view.ShowError(
+                    "Error adding city:\n\n" + ex.Message);
+            }
+        }
+    }
+}
+```
+
+ Now the responsibility is clean:
+
+ **Presenter validates and controls the operation.**
+
+ **Repository performs the database operation.**
+
+ **Form displays the UI.**
+
+---
+
+ # 6\. WinForms View — CityForm.cs
+
+ Create your WinForms form.
+
+ You can use the Visual Studio Designer to add:
+
+```
+Label       City Name:
+TextBox     txtCityName
+Button      btnAddCity
+```
+
+ For example:
+
+```
++--------------------------------------+
+|             Add City                 |
+|                                      |
+| City Name: [____________________]    |
+|                                      |
+|             [ Add City ]             |
+|                                      |
++--------------------------------------+
+```
+
+ Then your `CityForm.cs` can be:
+
+```
+using System;
+using System.Windows.Forms;
+using DemoApp.Model;
+using DemoApp.Presenter;
+
+namespace DemoApp.View
+{
+    public partial class CityForm : Form, ICityView
+    {
+        private readonly CityPresenter _presenter;
+
+        public CityForm()
+        {
+            InitializeComponent();
+
+            string connectionString =
+                "Host=localhost;" +
+                "Port=5432;" +
+                "Database=YOUR_DATABASE;" +
+                "Username=postgres;" +
+                "Password=YOUR_PASSWORD;";
+
+            var repository = new CityRepository(connectionString);
+
+            _presenter = new CityPresenter(this, repository);
+
+            btnAddCity.Click += BtnAddCity_Click;
+        }
+
+        public string CityName
+        {
+            get { return txtCityName.Text; }
+        }
+
+        public void ShowMessage(string message)
+        {
+            MessageBox.Show(
+                message,
+                "City",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+
+        public void ShowError(string message)
+        {
+            MessageBox.Show(
+                message,
+                "City",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
+
+        public void ClearCityName()
+        {
+            txtCityName.Clear();
+            txtCityName.Focus();
+        }
+
+        private void BtnAddCity_Click(object sender, EventArgs e)
+        {
+            _presenter.AddCity();
+        }
+    }
+}
+```
+
+ Change:
+
+```
+YOUR_DATABASE
+```
+
+ and:
+
+```
+YOUR_PASSWORD
+```
+
+ to your PostgreSQL database/password.
+
+ For example:
+
+```
+string connectionString =
+    "Host=localhost;" +
+    "Port=5432;" +
+    "Database=DemoDB;" +
+    "Username=postgres;" +
+    "Password=postgres;";
+```
+
+---
+
+ # 7\. Program.cs
+
+ For a normal WinForms project, use:
+
+```
+using System;
+using System.Windows.Forms;
+using DemoApp.View;
+
+namespace DemoApp
+{
+    internal static class Program
+    {
+        [STAThread]
+        static void Main()
+        {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
+            Application.Run(new CityForm());
+        }
+    }
+}
+```
+
+ If you're using **.NET 6/7/8/9/10 WinForms**, your `Program.cs` may look slightly different. In that case use:
+
+```
+using System;
+using System.Windows.Forms;
+using DemoApp.View;
+
+namespace DemoApp
+{
+    internal static class Program
+    {
+        [STAThread]
+        static void Main()
+        {
+            ApplicationConfiguration.Initialize();
+            Application.Run(new CityForm());
+        }
+    }
+}
+```
+
+---
+
+ # 8\. Your PostgreSQL table
+
+ Your existing table works:
+
+```
+CREATE TABLE city
+(
+    code serial NOT NULL,
+    ct_nm character varying(200)
+);
+```
+
+ I would make one small improvement: make `code` the primary key and prevent duplicate city names.
+
+```
+ALTER TABLE city
+ADD CONSTRAINT pk_city PRIMARY KEY (code);
+
+ALTER TABLE city
+ADD CONSTRAINT uq_city_ct_nm UNIQUE (ct_nm);
+```
+
+ Then your table becomes logically:
+
+```
+city
+-----------------------
+code     integer
+ct_nm    varchar(200)
+-----------------------
+1        London
+2        Paris
+3        New York
+```
+
+ The `code` is automatically generated by PostgreSQL when you insert:
+
+```
+INSERT INTO city (ct_nm)
+VALUES ('London');
+```
+
+ You don't need to provide `code` from your WinForms application.
+
+---
+
+ # 9\. Important: case-insensitive duplicates
+
+ Our C# code checks:
+
+```
+WHERE UPPER(ct_nm) = UPPER(@cityName)
+```
+
+ So:
+
+```
+London
+london
+LONDON
+LoNdOn
+```
+
+ are treated as the same city by the application.
+
+ If you want PostgreSQL itself to enforce this rule, you can use a unique index:
+
+```
+CREATE UNIQUE INDEX uq_city_ct_nm_lower
+ON city (LOWER(ct_nm));
+```
+
+ Then even if another application inserts `london`, PostgreSQL will prevent a duplicate `London`.
+
+---
+
+ # 10\. MVP flow
+
+ When the user enters:
+
+```
+Austin
+```
+
+ and clicks **Add City**:
+
+```
+              CityForm
+                 │
+                 │ AddCity()
+                 ▼
+          CityPresenter
+                 │
+        validate "Austin"
+                 │
+                 ▼
+          CityRepository
+                 │
+                 │ CityExists()
+                 ▼
+             PostgreSQL
+                 │
+             not found
+                 │
+                 ▼
+          CityRepository
+                 │
+            AddCity()
+                 │
+                 ▼
+          PostgreSQL
+                 │
+             INSERT
+                 ▼
+          CityPresenter
+                 │
+                 ▼
+           CityForm
+                 │
+                 ▼
+       "City added successfully"
+```
+
+ That's a clean **MVP (Model–View–Presenter)** separation.
+
+ ### One thing I'd change from your earlier code
+
+ Your previous repository had:
+
+```
+INSERT INTO City (Name, Std, Tag)
+```
+
+ but your actual PostgreSQL table has:
+
+```
+code
+ct_nm
+```
+
+ So **do not use `Name`, `Std`, or `Tag`** with this database. The correct insert is:
+
+```
+INSERT INTO city (ct_nm)
+VALUES (@cityName)
+```
+
+ If you tell me your **Visual Studio version and whether the project is .NET Framework, .NET 6, .NET 8, or .NET 10**, I can give you the exact Designer code (`CityForm.Designer.cs`) too, so you can copy the complete project and run it.
